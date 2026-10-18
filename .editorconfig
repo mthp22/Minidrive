@@ -1,0 +1,52 @@
+# Top-most EditorConfig file: applies to every file in this repository.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+[*.{json,jsonc,yml,yaml,md,editorconfig,gitignore,env.example}]
+indent_size = 2
+
+[*.cs]
+# Style analyzers (all warnings, so the solution builds with zero warnings).
+dotnet_diagnostic.CA1416.severity = default
+dotnet_diagnostic.IDE0005.severity = warning
+dotnet_diagnostic.IDE0161.severity = warning
+
+# Naming
+dotnet_naming_rule.private_readonly_field_should_be_camel_cased.severity = suggestion
+dotnet_naming_symbols.private_readonly_fields.applicable_kinds = field
+dotnet_naming_symbols.private_readonly_fields.applicable_accessibilities = private, protected
+dotnet_naming_style.camel_case_underscore_prefix.required_prefix = _
+dotnet_naming_style.camel_case_underscore_prefix.capitalization = camel_case
+
+# File header: files are self-documenting via XML docs; no forced header.
+file_header_template = disable
+
+# Braces (Allman, matching the codebase)
+csharp_new_line_before_open_brace = all
+csharp_prefer_braces = true:suggestion
+
+# 'var' usage: prefer var when the type is apparent from the right-hand side
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Expression-bodied members for simple members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+
+# Nullable references are enabled project-wide via Directory.Build.props
+dotnet_diagnostic.CS8600.severity = warning
+
+[*.{csproj,props,targets,sln}]
+indent_size = 2
+
+[*.md]
+# Markdown: hard-wrap is a choice; keep trailing whitespace meaningful for breaks.
+trim_trailing_whitespace = false

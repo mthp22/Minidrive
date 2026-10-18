@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    API layer: HTTP concerns only (minimal API endpoints, auth, validation,
+    error handling, OpenAPI, health checks and DI composition).
+  -->
+  <PropertyGroup>
+    <RootNamespace>Minidrive.Api</RootNamespace>
+    <AssemblyName>Minidrive.Api</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Minidrive.Application\Minidrive.Application.csproj" />
+    <ProjectReference Include="..\Minidrive.Infrastructure\Minidrive.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <!-- The integration test project drives the API through WebApplicationFactory. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Minidrive.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

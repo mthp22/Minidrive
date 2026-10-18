@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Infrastructure layer: MongoDB persistence, Cloudflare R2 object storage,
+    health checks and other external integrations.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Minidrive.Infrastructure</RootNamespace>
+    <AssemblyName>Minidrive.Infrastructure</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Minidrive.Application\Minidrive.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets integration tests exercise internal wiring (e.g. R2ClientFactory) directly. -->
+    <InternalsVisibleTo Include="Minidrive.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="AWSSDK.S3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+  </ItemGroup>
+
+</Project>

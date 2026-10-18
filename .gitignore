@@ -1,0 +1,35 @@
+# --- build output -----------------------------------------------------------
+bin/
+obj/
+artifacts/
+out/
+TestResults/
+*.trx
+*.nupkg
+*.snupkg
+
+# --- IDE / editor -----------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.swp
+*~
+
+# --- OS ---------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- secrets & local overrides (never commit) -------------------------------
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+secrets.json
+
+# --- logs -------------------------------------------------------------------
+*.log
+logs/

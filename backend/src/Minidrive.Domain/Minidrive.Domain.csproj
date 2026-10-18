@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain layer: entities, invariants and domain rules only.
+    It deliberately has NO dependency on ASP.NET Core, MongoDB or the AWS SDK.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Minidrive.Domain</RootNamespace>
+    <AssemblyName>Minidrive.Domain</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Infrastructure reconstitutes entities from MongoDB documents, and unit tests exercise
+    internal state transitions directly. Both use the internal rehydration members.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Minidrive.Infrastructure" />
+    <InternalsVisibleTo Include="Minidrive.UnitTests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Integration tests exercise the real API pipeline (WebApplicationFactory) against a
+    disposable MongoDB instance. Object storage is replaced with an in-memory fake so the
+    default suite never needs Docker or real Cloudflare R2 credentials.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Minidrive.IntegrationTests</RootNamespace>
+    <AssemblyName>Minidrive.IntegrationTests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Minidrive.Api\Minidrive.Api.csproj" />
+    <ProjectReference Include="..\..\src\Minidrive.Application\Minidrive.Application.csproj" />
+    <ProjectReference Include="..\..\src\Minidrive.Infrastructure\Minidrive.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="EphemeralMongo" />
+  </ItemGroup>
+
+</Project>

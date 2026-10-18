@@ -1,0 +1,46 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM).
+    Every package version is pinned here exactly once so the whole solution
+    resolves a single, reviewable set of dependencies.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Runtime / infrastructure -->
+    <PackageVersion Include="MongoDB.Driver" Version="3.12.0" />
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104.4" />
+    <PackageVersion Include="FluentValidation" Version="12.2.0" />
+    <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.2.0" />
+
+    <!--
+      Microsoft.Extensions abstractions. Pinned to the ASP.NET Core 9.0 shared-framework
+      patch band so centrally-managed transitive pinning does not force a downgrade.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.21" />
+
+    <!-- ASP.NET Core (API layer) -->
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.21" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.21" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.18.0" />
+
+    <!-- Testing -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="Moq" Version="4.21.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.21" />
+    <PackageVersion Include="EphemeralMongo" Version="3.2.0" />
+  </ItemGroup>
+
+</Project>

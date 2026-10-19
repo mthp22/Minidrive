@@ -158,6 +158,72 @@ public sealed class NodeQueryServiceTests
         Assert.Contains("/download/", response.Url.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Search_MatchesCaseInsensitivelyAcrossFolders()
+    {
+        var context = new ApplicationTestContext();
+        var nested = await context.CommandService.CreateFolderAsync(UserA, new CreateFolderRequest(null, "Work"), default);
+        await context.CommandService.CreateFolderAsync(UserA, new CreateFolderRequest(nested.Id, "Reports 2026"), default);
+        await CompleteUploadAsync(context, UserA, nested.Id, "quarterly-report.pdf", 1024);
+        await CompleteUploadAsync(context, UserA, null, "holiday.jpg", 1024);
+
+        var results = await context.QueryService.SearchAsync(UserA, "REPORT", pageSize: 50, default);
+
+        Assert.Equal(["quarterly-report.pdf", "Reports 2026"], results.Select(result => result.Name).Order());
+    }
+
+    [Fact]
+    public async Task Search_TreatsTheQueryLiterally_NotAsAPattern()
+    {
+        var context = new ApplicationTestContext();
+        await CompleteUploadAsync(context, UserA, null, "report(1).txt", 512);
+        await CompleteUploadAsync(context, UserA, null, "reportx1x.txt", 512);
+        await CompleteUploadAsync(context, UserA, null, "axtxt", 512);
+
+        // "(1)" must match literally, not as a regex group that would also match "x1x".
+        var literal = await context.QueryService.SearchAsync(UserA, "(1)", pageSize: 50, default);
+        Assert.Equal(["report(1).txt"], literal.Select(result => result.Name));
+
+        // "." must match literally, not "any character": "axtxt" must not match ".txt".
+        var dot = await context.QueryService.SearchAsync(UserA, ".txt", pageSize: 50, default);
+        Assert.Equal(["report(1).txt", "reportx1x.txt"], dot.Select(result => result.Name).Order());
+    }
+
+    [Fact]
+    public async Task Search_ExcludesPendingDeletedAndOtherUsersNodes()
+    {
+        var context = new ApplicationTestContext();
+        await CompleteUploadAsync(context, UserA, null, "shared-name.txt", 512);
+        var doomed = await CompleteUploadAsync(context, UserA, null, "shared-name-old.txt", 512);
+
+        // Pending files reserve their names but are not searchable before completion.
+        await context.UploadService.InitiateAsync(
+            UserA, new InitiateUploadRequest(null, "shared-name-pending.txt", "text/plain", 512), default);
+
+        await context.CommandService.DeleteNodeAsync(UserA, doomed, default);
+
+        await context.UploadService.InitiateAsync(
+            UserB, new InitiateUploadRequest(null, "shared-name-b.txt", "text/plain", 512), default);
+
+        var results = await context.QueryService.SearchAsync(UserA, "shared-name", pageSize: 50, default);
+
+        Assert.Equal(["shared-name.txt"], results.Select(result => result.Name));
+    }
+
+    [Fact]
+    public async Task Search_RespectsTheResultLimit()
+    {
+        var context = new ApplicationTestContext();
+        for (var i = 0; i < 5; i++)
+        {
+            await context.CommandService.CreateFolderAsync(UserA, new CreateFolderRequest(null, $"notes-{i}"), default);
+        }
+
+        var results = await context.QueryService.SearchAsync(UserA, "notes", pageSize: 2, default);
+
+        Assert.Equal(2, results.Count);
+    }
+
     private static async Task<string> CompleteUploadAsync(
         ApplicationTestContext context,
         string userId,

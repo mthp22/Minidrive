@@ -214,7 +214,7 @@ public sealed class UploadServiceTests
     }
 
     [Fact]
-    public async Task Complete_WhenProviderReportsUnexpectedSize_FailsAndQueuesCleanup()
+    public async Task Complete_WhenProviderReportsUnexpectedSize_FailsAndReleasesTheName()
     {
         var context = new ApplicationTestContext();
         var response = await InitiateAsync(context, UserA, "video.mp4", TwentyFiveMiB);
@@ -225,11 +225,16 @@ public sealed class UploadServiceTests
 
         Assert.Equal(UploadStatus.Failed, context.Sessions.All.Single().Status);
         Assert.Single(context.CleanupQueue.Items);
-        Assert.Equal(NodeStatus.Pending, context.Nodes.All.Single().Status);
+
+        // The failed session must not keep the file name reserved: the documented retry path is a
+        // fresh upload with the same name.
+        Assert.Empty(context.Nodes.All);
+        var retry = await InitiateAsync(context, UserA, "video.mp4", TwentyFiveMiB);
+        Assert.NotEqual(response.UploadId, retry.UploadId);
     }
 
     [Fact]
-    public async Task Complete_WhenStorageFails_MarksSessionFailed()
+    public async Task Complete_WhenStorageFails_MarksSessionFailedAndReleasesTheName()
     {
         var context = new ApplicationTestContext();
         var response = await InitiateAsync(context, UserA, "video.mp4", TwentyFiveMiB);
@@ -239,7 +244,7 @@ public sealed class UploadServiceTests
             context.UploadService.CompleteAsync(UserA, response.UploadId, CompleteParts(3), default));
 
         Assert.Equal(UploadStatus.Failed, context.Sessions.All.Single().Status);
-        Assert.Equal(NodeStatus.Pending, context.Nodes.All.Single().Status);
+        Assert.Empty(context.Nodes.All);
     }
 
     [Fact]

@@ -68,6 +68,13 @@ public static class NodeEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        endpoints.MapGet("/api/v1/search", SearchNodesAsync)
+            .WithTags("Search")
+            .WithSummary("Case-insensitive name search across the user's folders and files.")
+            .RequireAuthorization()
+            .Produces<IReadOnlyList<NodeSummary>>()
+            .ProducesValidationProblem();
+
         endpoints.MapPost("/api/v1/folders", CreateFolderAsync)
             .WithTags("Folders")
             .WithSummary("Creates a folder.")
@@ -175,5 +182,25 @@ public static class NodeEndpoints
     {
         await commands.DeleteNodeAsync(currentUser.RequireUserId(), nodeId, cancellationToken);
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> SearchNodesAsync(
+        ICurrentUser currentUser,
+        NodeQueryService nodes,
+        IValidator<SearchNodesRequest> validator,
+        CancellationToken cancellationToken,
+        [FromQuery] string? q,
+        [FromQuery] int? pageSize)
+    {
+        var request = new SearchNodesRequest(q, pageSize);
+        await validator.ValidateRequestAsync(request, cancellationToken);
+
+        var results = await nodes.SearchAsync(
+            currentUser.RequireUserId(),
+            request.Q!,
+            pageSize,
+            cancellationToken);
+
+        return Results.Ok(results);
     }
 }

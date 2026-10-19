@@ -1,0 +1,247 @@
+<!-- Toolbar -->
+<div
+  class="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90"
+>
+  @if (selection().size > 0) {
+    <span class="text-sm font-medium text-slate-600 dark:text-slate-300">
+      {{ selection().size }} selected
+    </span>
+    <button type="button" class="btn-secondary" (click)="downloadSelection()">
+      <ui-icon [size]="16" name="download" /> Download
+    </button>
+    <button type="button" class="btn-secondary" (click)="openMove()">
+      <ui-icon [size]="16" name="move" /> Move
+    </button>
+    <button type="button" class="btn-danger" (click)="openDelete()">
+      <ui-icon [size]="16" name="trash" /> Delete
+    </button>
+    <button type="button" class="btn-secondary" (click)="clearSelection()">Clear</button>
+  } @else {
+    <button type="button" class="btn-primary" (click)="openNewFolder()">
+      <ui-icon [size]="16" name="plus" /> New folder
+    </button>
+    <button type="button" class="btn-secondary" (click)="filePicker.click()">
+      <ui-icon [size]="16" name="upload" /> Upload
+    </button>
+    <input #filePicker type="file" multiple class="hidden" (change)="onFilesPicked($event)" />
+    <span class="grow"></span>
+    <button
+      type="button"
+      class="btn-secondary"
+      (click)="reload()"
+      [disabled]="loading()"
+      title="Refresh"
+    >
+      <ui-icon [size]="16" name="refresh" [class.animate-spin]="loading()" />
+    </button>
+  }
+</div>
+
+<!-- Breadcrumbs -->
+<nav class="flex items-center gap-1 overflow-x-auto px-4 py-2 text-sm" aria-label="Breadcrumb">
+  @for (crumb of crumbs(); track crumb.id ?? 'root') {
+    @if (!$first) {
+      <ui-icon [size]="14" name="chevron-right" class="text-slate-400" />
+    }
+    <button
+      type="button"
+      class="max-w-40 truncate rounded px-1.5 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+      [class.font-semibold]="crumb.id === folderId()"
+      [class.text-slate-500]="crumb.id !== folderId()"
+      (click)="navigateTo(crumb.id)"
+    >
+      {{ crumb.name }}
+    </button>
+  }
+</nav>
+
+<!-- Listing -->
+<div
+  class="min-h-[50vh] px-2 pb-24"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+  [class.ring-2]="dragActive()"
+  [class.ring-sky-400]="dragActive()"
+  [class.ring-inset]="dragActive()"
+>
+  @if (loading() && items().length === 0) {
+    <!-- Skeletons -->
+    @for (row of [1, 2, 3, 4, 5]; track row) {
+      <div class="flex animate-pulse items-center gap-3 rounded-lg px-3 py-3">
+        <div class="h-5 w-5 rounded bg-slate-200 dark:bg-slate-800"></div>
+        <div class="h-4 flex-1 rounded bg-slate-200 dark:bg-slate-800"></div>
+        <div class="h-4 w-16 rounded bg-slate-200 dark:bg-slate-800"></div>
+      </div>
+    }
+  } @else if (loadError()) {
+    <div
+      class="mx-auto mt-16 max-w-md rounded-xl border border-red-200 bg-red-50 p-6 text-center dark:border-red-900 dark:bg-red-950/40"
+    >
+      <ui-icon [size]="28" name="alert" class="mx-auto text-red-500" />
+      <p class="mt-3 text-sm font-medium text-red-800 dark:text-red-300">{{ loadError() }}</p>
+      <button type="button" class="btn-secondary mt-4" (click)="reload()">Try again</button>
+    </div>
+  } @else if (items().length === 0) {
+    <div class="mx-auto mt-16 max-w-md text-center">
+      <ui-icon [size]="40" name="cloud" class="mx-auto text-slate-300 dark:text-slate-700" />
+      <p class="mt-4 text-sm font-medium text-slate-600 dark:text-slate-400">
+        This folder is empty
+      </p>
+      <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">
+        Drop files here or use the Upload button to get started.
+      </p>
+    </div>
+  } @else {
+    <!-- Header row -->
+    <div
+      class="flex items-center gap-3 border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800"
+    >
+      <input
+        type="checkbox"
+        class="h-4 w-4 rounded border-slate-300 accent-sky-600"
+        [checked]="allSelected()"
+        [indeterminate]="someSelected()"
+        (change)="toggleSelectAll()"
+        aria-label="Select all"
+      />
+      <span class="grow">Name</span>
+      <span class="w-24 text-right">Size</span>
+      <span class="w-40 text-right">Modified</span>
+      <span class="w-8"></span>
+    </div>
+
+    @for (item of sortedItems(); track item.id) {
+      <div
+        role="button"
+        tabindex="0"
+        class="group flex cursor-default select-none items-center gap-3 rounded-lg px-3 py-2.5 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-slate-800/60"
+        [class.bg-sky-50]="selection().has(item.id)"
+        [class.dark:bg-sky-950/50]="selection().has(item.id)"
+        (click)="onRowClick(item, $event)"
+        (dblclick)="open(item)"
+        (contextmenu)="openContextMenu(item, $event)"
+        (keydown.enter)="open(item)"
+        (keydown.space)="toggleSelected(item, $event)"
+        (keydown.delete)="askDelete(item)"
+      >
+        <input
+          type="checkbox"
+          class="h-4 w-4 rounded border-slate-300 accent-sky-600"
+          [checked]="selection().has(item.id)"
+          (click)="$event.stopPropagation()"
+          (change)="toggleSelected(item)"
+          [attr.aria-label]="'Select ' + item.name"
+        />
+        <ui-icon
+          [size]="18"
+          [name]="item.type === 'Folder' ? 'folder' : 'file'"
+          [class]="item.type === 'Folder' ? 'text-amber-500' : 'text-sky-500'"
+        />
+        <span class="grow truncate text-sm" [title]="item.name">{{ item.name }}</span>
+        <span class="w-24 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">
+          {{ item.type === 'File' ? formatBytes(item.sizeBytes) : '—' }}
+        </span>
+        <span class="w-40 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">
+          {{ formatTimestamp(item.updatedAtUtc, item.type) }}
+        </span>
+        <button
+          type="button"
+          class="rounded-md p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-slate-700"
+          (click)="openContextMenu(item, $event)"
+          [attr.aria-label]="'Actions for ' + item.name"
+        >
+          <ui-icon [size]="16" name="more" />
+        </button>
+      </div>
+    }
+
+    @if (hasMore()) {
+      <div class="mt-2 text-center">
+        <button type="button" class="btn-secondary" [disabled]="loadingMore()" (click)="loadMore()">
+          @if (loadingMore()) {
+            <span
+              class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
+            ></span>
+            Loading…
+          } @else {
+            Load more
+          }
+        </button>
+      </div>
+    }
+  }
+</div>
+
+<!-- Context menu -->
+@if (menu(); as menuState) {
+  <div
+    class="fixed z-40 w-44 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+    [style.left.px]="menuState.x"
+    [style.top.px]="menuState.y"
+  >
+    @if (menuState.node.type === 'Folder') {
+      <button type="button" class="menu-item" (click)="openAndCloseMenu(menuState.node)">
+        <ui-icon [size]="15" name="folder" /> Open
+      </button>
+    } @else {
+      <button type="button" class="menu-item" (click)="download(menuState.node)">
+        <ui-icon [size]="15" name="download" /> Download
+      </button>
+    }
+    <button type="button" class="menu-item" (click)="openRename(menuState.node)">
+      <ui-icon [size]="15" name="pencil" /> Rename
+    </button>
+    <button type="button" class="menu-item" (click)="openMoveFor(menuState.node)">
+      <ui-icon [size]="15" name="move" /> Move
+    </button>
+    <button
+      type="button"
+      class="menu-item text-red-600 dark:text-red-400"
+      (click)="askDelete(menuState.node)"
+    >
+      <ui-icon [size]="15" name="trash" /> Delete
+    </button>
+  </div>
+}
+
+<!-- Dialogs -->
+<ui-name-dialog
+  [open]="newFolderOpen()"
+  title="New folder"
+  label="Folder name"
+  placeholder="Untitled folder"
+  submitLabel="Create"
+  [serverError]="dialogError()"
+  (submitted)="createFolder($event)"
+  (closed)="closeDialogs()"
+/>
+
+<ui-name-dialog
+  [open]="renameOpen()"
+  [title]="'Rename “' + (renameTarget()?.name ?? '') + '”'"
+  label="New name"
+  [initialValue]="renameTarget()?.name ?? ''"
+  submitLabel="Rename"
+  [serverError]="dialogError()"
+  (submitted)="rename($event)"
+  (closed)="closeDialogs()"
+/>
+
+<ui-confirm-dialog
+  [open]="deleteOpen()"
+  [title]="selection().size > 1 ? 'Delete ' + selection().size + ' items?' : 'Delete this item?'"
+  [message]="deleteMessage()"
+  confirmLabel="Delete"
+  (confirmed)="confirmDelete()"
+  (closed)="closeDialogs()"
+/>
+
+<ui-move-dialog
+  [open]="moveOpen()"
+  [count]="moveTargets().length"
+  [currentParentId]="folderId() ?? null"
+  [excludedIds]="moveTargets().map((target) => target.id)"
+  (confirmed)="move($event)"
+  (closed)="closeDialogs()"
+/>

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Minidrive.Application.Abstractions.Persistence;
 using Minidrive.Application.Common;
 using Minidrive.Domain.Entities;
@@ -233,6 +234,24 @@ public sealed class InMemoryNodeRepository : INodeRepository
 
         _nodes.Remove(nodeId);
         return Task.FromResult(true);
+    }
+
+    public Task<IReadOnlyList<Node>> SearchByNameAsync(
+        string userId,
+        string namePattern,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Node> results = _nodes.Values
+            .Where(node => node.UserId == userId
+                && !node.IsDeleted
+                && node.Status == NodeStatus.Ready
+                && Regex.IsMatch(node.Name, namePattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
+            .OrderBy(node => node.Name, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList();
+
+        return Task.FromResult(results);
     }
 
     private bool SiblingExists(string userId, string? parentId, string name, string? excludeNodeId) =>

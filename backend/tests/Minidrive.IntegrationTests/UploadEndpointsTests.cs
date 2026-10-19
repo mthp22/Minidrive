@@ -353,6 +353,10 @@ public sealed class UploadEndpointsTests : ApiTestBase
 
         Assert.Equal(HttpStatusCode.Conflict, retry.StatusCode);
         Assert.Equal("upload.notactive", (await ReadProblemAsync(retry)).Code);
+        // ...but the file name is no longer reserved: a fresh upload with the same name is the
+        // documented recovery path and must succeed immediately.
+        var fresh = await InitiateAsync(client, session.FileName, sizeBytes);
+        Assert.NotEqual(session.UploadId, fresh.UploadId);
     }
 
     [Fact]

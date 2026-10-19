@@ -251,6 +251,21 @@ curl -s -i -X DELETE "http://localhost:5080/api/v1/nodes/$NODE_ID" -H "$AUTH"   
 curl -s "http://localhost:5080/api/v1/nodes/$FILE_ID/download-url" -H "$AUTH"
 ```
 
+### Search
+
+```bash
+# Case-insensitive substring match on names, across the whole drive, ordered by name.
+curl -s "http://localhost:5080/api/v1/search?q=report&pageSize=25" -H "$AUTH"
+# → 200 [ { "id": "...", "name": "Reports 2026", "type": "folder", ... }, ... ]
+
+# The query is always literal — regex metacharacters are escaped, never interpreted:
+curl -s "http://localhost:5080/api/v1/search?q=report%281%29" -H "$AUTH"   # matches "report(1)" exactly
+```
+
+- Scoped to the authenticated user; pending uploads and soft-deleted nodes are excluded.
+- No cursor: results are capped at one page (`pageSize`, clamped to the documented range).
+- `400 request.validation` when `q` is missing, blank or longer than 255 characters.
+
 ### Uploads (three-phase multipart)
 
 ```bash
@@ -286,7 +301,8 @@ curl -s -X POST "http://localhost:5080/api/v1/uploads/$UPLOAD_ID/abort" \
 Rules enforced server-side:
 
 - Non-final parts must be ≥ 5 MiB; the declared total must match what the provider
-  received (`400` with `errors.sizeBytes` otherwise, session is failed).
+  received (`400` with `errors.sizeBytes` otherwise, session is failed and the file
+  name is released so a new upload can start immediately).
 - Part numbers must be contiguous `1..expectedPartCount`, unique, with printable-ASCII
   eTags (`400 request.validation` otherwise).
 - Completing an already-completed session is **idempotent** — the existing file is

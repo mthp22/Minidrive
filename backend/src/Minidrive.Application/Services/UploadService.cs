@@ -289,7 +289,7 @@ public sealed class UploadService
                 exception,
                 "Completing the multipart upload failed for session {UploadSessionId}.",
                 session.Id);
-            await MarkFailedAsync(userId, session.Id, "multipart completion failed", cancellationToken);
+            await MarkFailedAsync(userId, session, "multipart completion failed", cancellationToken);
             throw;
         }
 
@@ -321,7 +321,7 @@ public sealed class UploadService
             // The object exists (the multipart upload completed) but is not usable. Delete it via the
             // cleanup queue, fail the session and let the client start a new upload.
             await _cleanupQueue.EnqueueAsync(userId, session.StorageKey, cancellationToken);
-            await MarkFailedAsync(userId, session.Id, "uploaded size did not match the expected size", cancellationToken);
+            await MarkFailedAsync(userId, session, "uploaded size did not match the expected size", cancellationToken);
             throw;
         }
 
@@ -465,12 +465,13 @@ public sealed class UploadService
         return session;
     }
 
-    private async Task MarkFailedAsync(string userId, string sessionId, string reason, CancellationToken cancellationToken)
+    private async Task MarkFailedAsync(string userId, UploadSession session, string reason, CancellationToken cancellationToken)
     {
         await SafeTransitionAsync(
-            new UploadSessionTransition(sessionId, userId, UploadStatus.Completing, UploadStatus.Failed, FailureReason: reason),
+            new UploadSessionTransition(session.Id, userId, UploadStatus.Completing, UploadStatus.Failed, FailureReason: reason),
             cancellationToken);
-        _logger.LogWarning("Upload session {UploadSessionId} marked as failed: {Reason}.", sessionId, reason);
+        _logger.LogWarning("Upload session {UploadSessionId} marked as failed: {Reason}.", session.Id, reason);
+        await SafeDeletePendingNodeAsync(userId, session.FileNodeId, cancellationToken);
     }
 
     private async Task RollbackInitiationAsync(

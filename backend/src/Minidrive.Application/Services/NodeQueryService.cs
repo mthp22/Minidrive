@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Minidrive.Application.Abstractions.Persistence;
 using Minidrive.Application.Abstractions.Storage;
 using Minidrive.Application.Common;
@@ -63,6 +64,24 @@ public sealed class NodeQueryService
             .ToList();
 
         return new PagedResult<NodeSummary>(items, nextCursor);
+    }
+
+    /// <summary>
+    /// Case-insensitive name search across the user's folders and ready files, ordered by name.
+    /// The query is regex-escaped so user input is always matched literally; results are capped
+    /// at one page (search has no cursor).
+    /// </summary>
+    public async Task<IReadOnlyList<NodeSummary>> SearchAsync(
+        string userId,
+        string query,
+        int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        var pattern = Regex.Escape(query.Trim());
+        var limit = PaginationLimits.Normalize(pageSize);
+
+        var results = await _nodes.SearchByNameAsync(userId, pattern, limit, cancellationToken);
+        return results.Select(NodeModelMapper.ToSummary).ToList();
     }
 
     /// <summary>Returns node metadata, optionally including the recursive size of a folder.</summary>

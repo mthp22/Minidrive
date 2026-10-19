@@ -94,4 +94,15 @@ public interface INodeRepository
 
     /// <summary>Permanently removes a single node (used to discard a pending upload reservation).</summary>
     Task<bool> DeleteAsync(string userId, string nodeId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Searches the user's live nodes (ready folders and files) whose name contains
+    /// <paramref name="namePattern"/> — an already regex-escaped pattern matched
+    /// case-insensitively — ordered by name. Pending and soft-deleted nodes are excluded.
+    /// </summary>
+    Task<IReadOnlyList<Node>> SearchByNameAsync(
+        string userId,
+        string namePattern,
+        int limit,
+        CancellationToken cancellationToken);
 }

@@ -104,6 +104,29 @@ public sealed class MongoNodeRepository : INodeRepository
         return documents.Select(NodeMapper.ToDomain).ToList();
     }
 
+    public async Task<IReadOnlyList<Node>> SearchByNameAsync(
+        string userId,
+        string namePattern,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(namePattern);
+
+        var filter = Filters.And(
+            Filters.Eq(document => document.UserId, userId),
+            Filters.Eq(document => document.IsDeleted, false),
+            Filters.Eq(document => document.Status, NodeStatus.Ready),
+            Filters.Regex(document => document.Name, new BsonRegularExpression(namePattern, "i")));
+
+        var documents = await _collection
+            .Find(filter)
+            .Sort(Sorts.Ascending(document => document.Name))
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
+        return documents.Select(NodeMapper.ToDomain).ToList();
+    }
+
     public async Task<bool> SiblingNameExistsAsync(
         string userId,
         string? parentId,

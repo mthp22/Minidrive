@@ -36,4 +36,48 @@ public sealed class AuthenticationOptions
     /// outside the Development environment.
     /// </summary>
     public bool EnableDevTokenEndpoint { get; set; }
+
+    /// <summary>
+    /// Auth0 tenant domain (e.g. <c>dev-abc123.us.auth0.com</c>), without a scheme. When set
+    /// together with <see cref="Auth0Audience"/>, the API also accepts Auth0-issued access tokens
+    /// validated against the tenant's JWKS. Leave both empty to run without Auth0.
+    /// </summary>
+    public string? Auth0Domain { get; set; }
+
+    /// <summary>
+    /// Auth0 API identifier (audience) the API accepts, e.g. <c>https://minidrive-api</c>. Must match
+    /// the audience requested by the client when it obtains an access token.
+    /// </summary>
+    public string? Auth0Audience { get; set; }
+
+    /// <summary>True when both Auth0 settings are present and Auth0 validation is active.</summary>
+    public bool Auth0Enabled =>
+        !string.IsNullOrWhiteSpace(Auth0Domain) && !string.IsNullOrWhiteSpace(Auth0Audience);
+
+    /// <summary>
+    /// Normalised Auth0 authority (issuer base, with a trailing slash) derived from
+    /// <see cref="Auth0Domain"/>. Tolerates a domain that already carries an <c>https://</c> scheme.
+    /// </summary>
+    public string? Auth0Authority
+    {
+        get
+        {
+            if (!Auth0Enabled)
+            {
+                return null;
+            }
+
+            var domain = Auth0Domain!.Trim();
+            if (domain.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                domain = domain["https://".Length..];
+            }
+            else if (domain.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                domain = domain["http://".Length..];
+            }
+
+            return $"https://{domain.TrimEnd('/')}/";
+        }
+    }
 }

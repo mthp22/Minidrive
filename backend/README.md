@@ -94,7 +94,7 @@ resource exists.
 | --- | --- |
 | Errors | RFC 7807 Problem Details with a stable machine-readable `code` extension |
 | Validation | FluentValidation; field-level `errors` map camelCased from request properties |
-| Auth | JWT bearer (`sub` claim = user id); dev-only token endpoint in Development |
+| Auth | JWT bearer (`sub` claim = user id); Auth0 (JWKS) and a local dev-token scheme, chosen by token issuer; dev-only token endpoint in Development |
 | OpenAPI | Generated at `/openapi/v1.json`, browsable at `/scalar/v1`, bearer scheme described |
 | Health | `GET /api/v1/health` (liveness), `GET /api/v1/health/ready` (+`/health/ready` alias) with per-dependency checks |
 | Indexes | Created programmatically at startup (`EnsureIndexesAsync`), idempotent |
@@ -119,16 +119,19 @@ startup. See [`.env.example`](../.env.example) for the full template.
 | `CloudflareR2` | `Endpoint` | **Required** (or `AccountId`). Explicit S3 endpoint — MinIO locally (`http://127.0.0.1:9000`), R2 in production |
 | | `AccountId`, `AccessKeyId`, `SecretAccessKey` | **Required.** MinIO's defaults locally; from the R2 dashboard in production |
 | | `BucketName`, `Region`, `ForcePathStyle` | Default bucket `minidrive`, path style `true`; region `us-east-1` for MinIO, `auto` for R2 |
-| `Authentication` | `Issuer`, `Audience` | Default `minidrive` / `minidrive-api` |
-| | `SigningKey` | **Required outside Development** (≥ 32 chars). In Development an ephemeral key is generated when empty |
+| `Authentication` | `Issuer`, `Audience` | Default `minidrive` / `minidrive-api` (the local dev-token scheme) |
+| | `SigningKey` | **Required outside Development** unless Auth0 is configured (≥ 32 chars). In Development an ephemeral key is generated when empty |
 | | `TokenLifetimeMinutes` | Default `60` |
 | | `EnableDevTokenEndpoint` | Dev-only; startup validation rejects `true` outside Development |
+| | `Auth0Domain`, `Auth0Audience` | Set both to accept Auth0-issued access tokens (validated against the tenant's JWKS, RS256). Domain e.g. `dev-xxxxx.us.auth0.com`; audience = your Auth0 API identifier. Leave empty to run without Auth0 |
 | `Uploads` | `ChunkSizeBytes` | Default 10 MiB; must be ≥ 5 MiB (R2 non-final part minimum) |
 | | `MaxFileSizeBytes` | Default 5 GiB |
 | | `PresignedUrlExpirationMinutes` | Default `60` |
 | | `UploadSessionLifetimeHours` | Default `24` |
 | | `QuotaBytesPerUser` | `0` disables quotas |
 | `Maintenance` | `Enabled`, `IntervalSeconds`, `BatchSize` | Background cleanup worker (default `true` / `300` / `100`) |
+| `Trash` | `RetentionDays` | How long a deleted item stays restorable before the purge (default `7`, range 1–365) |
+| | `MaxItems` | Upper bound on trash entries per listing (default `200`) |
 
 Environment variables use `__` as the section separator, e.g.
 `MongoDB__ConnectionString` → `configuration["MongoDB:ConnectionString"]`.
@@ -244,7 +247,8 @@ curl -s -X POST "http://localhost:5080/api/v1/nodes/$NODE_ID/move" \
   -H "$AUTH" -H 'content-type: application/json' \
   -d "{\"parentId\":\"$OTHER_FOLDER_ID\"}"
 
-# Soft-delete (objects are removed by the maintenance worker afterwards)
+# Soft-delete → the item moves to the trash and stays restorable for the retention window
+# (7 days by default); storage objects are kept until the item is purged or retention expires
 curl -s -i -X DELETE "http://localhost:5080/api/v1/nodes/$NODE_ID" -H "$AUTH"   # → 204
 
 # Short-lived download URL (files only)
@@ -265,6 +269,28 @@ curl -s "http://localhost:5080/api/v1/search?q=report%281%29" -H "$AUTH"   # mat
 - Scoped to the authenticated user; pending uploads and soft-deleted nodes are excluded.
 - No cursor: results are capped at one page (`pageSize`, clamped to the documented range).
 - `400 request.validation` when `q` is missing, blank or longer than 255 characters.
+
+### Trash (restore, permanent delete, retention)
+
+```bash
+# List the trash (top-level deleted items, newest first; each carries purgeAfterUtc)
+curl -s "http://localhost:5080/api/v1/trash" -H "$AUTH"
+
+# Restore a deleted item (and any descendants removed with it) → back into the drive
+curl -s -X POST "http://localhost:5080/api/v1/trash/$NODE_ID/restore" -H "$AUTH"   # → 200
+
+# Permanently delete one trash item now (metadata immediately; objects via the cleanup queue)
+curl -s -i -X DELETE "http://localhost:5080/api/v1/trash/$NODE_ID" -H "$AUTH"      # → 204
+
+# Empty the whole trash
+curl -s -i -X DELETE "http://localhost:5080/api/v1/trash" -H "$AUTH"               # → 204
+```
+
+- Soft-delete keeps storage objects so an item is restorable for the whole retention window; they
+  are removed only by a permanent delete or the retention purge (`Trash:RetentionDays`, default 7).
+- The background maintenance pass purges items whose retention has elapsed (metadata removed,
+  objects queued for deletion). Restore before then and the item — and its bytes — come back.
+- Trash shows only top-level deleted items: a deleted folder appears once, not once per descendant.
 
 ### Uploads (three-phase multipart)
 
@@ -363,7 +389,9 @@ dotnet test Minidrive.sln
 - **Single collection + materialised path.** One `Nodes` collection holds files and
   folders; `Path` (`…,parentId,folderId,`) makes "everything under X" an indexed prefix
   scan, and a move is one document update per subtree member.
-- **Soft delete + deferred cleanup.** `IsDeleted`/`DeletedAtUtc` flip instantly; object
+- **Soft delete + trash retention.** `IsDeleted`/`DeletedAtUtc` flip instantly and storage
+  objects are *kept* so the item stays restorable for the retention window (default 7
+  days). A background pass purges items past retention: metadata is removed and object
   keys go into a durable queue drained by the worker. Deleting twice is harmless
   (`404` the second time), and the unique sibling-name index is *partial*
   (`IsDeleted: false`), so a name is freed the moment its node is deleted.
@@ -384,7 +412,8 @@ dotnet test Minidrive.sln
 ## Limitations
 
 - **Phase 1 scope:** no sharing/collaboration, no versions/history, no thumbnails, no
-  virus scanning, no public links, no web frontend.
+  virus scanning, no public links. Trash/restore (with a 7-day retention) and Auth0
+  login are supported; the Angular web client lives in [`client/`](../client).
 - Single-region, single-bucket storage; no replication or tiering.
 - No server-side encryption-at-rest configuration (rely on the provider's defaults).
 - Quotas are enforced at initiate based on currently-stored bytes; concurrent uploads

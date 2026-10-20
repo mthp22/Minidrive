@@ -11,6 +11,7 @@ import {
   NodeSummary,
   PagedResult,
   PartUploadUrlResponse,
+  TrashItem,
 } from './models';
 
 @Injectable({ providedIn: 'root' })
@@ -73,6 +74,24 @@ export class ApiService {
         params: { q: query, pageSize: String(pageSize) },
       }),
     );
+  }
+
+  listTrash(): Promise<TrashItem[]> {
+    return firstValueFrom(this.http.get<TrashItem[]>('/api/v1/trash'));
+  }
+
+  restoreNode(nodeId: string): Promise<NodeDetails> {
+    return firstValueFrom(
+      this.http.post<NodeDetails>(`/api/v1/trash/${encodeURIComponent(nodeId)}/restore`, {}),
+    );
+  }
+
+  purgeNode(nodeId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/v1/trash/${encodeURIComponent(nodeId)}`));
+  }
+
+  emptyTrash(): Promise<void> {
+    return firstValueFrom(this.http.delete<void>('/api/v1/trash'));
   }
 
   initiateUpload(request: InitiateUploadRequest): Promise<InitiateUploadResponse> {

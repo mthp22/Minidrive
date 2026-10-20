@@ -36,4 +36,20 @@ public static class NodeModelMapper
             node.UpdatedAtUtc,
             folderSizeBytes);
     }
+
+    public static TrashItem ToTrashItem(Node node, TimeSpan retention)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        var deletedAt = node.DeletedAtUtc ?? node.UpdatedAtUtc;
+        return new TrashItem(
+            node.Id,
+            node.ParentId,
+            node.Name,
+            node.Type,
+            node.SizeBytes,
+            node.ContentType,
+            deletedAt,
+            deletedAt + retention);
+    }
 }

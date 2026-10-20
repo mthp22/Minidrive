@@ -68,6 +68,43 @@ public interface INodeRepository
         DateTimeOffset now,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Lists the user's trash roots — soft-deleted nodes whose parent is not itself deleted (or which
+    /// are root-level) — newest first, capped at <paramref name="limit"/>. Descendants of a deleted
+    /// folder are excluded because restoring (or purging) the folder covers them.
+    /// </summary>
+    Task<IReadOnlyList<Node>> ListDeletedRootsAsync(
+        string userId,
+        int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the node and the deleted descendants that were removed as part of the same deletion
+    /// (identified by a matching <paramref name="deletedAtUtc"/>). Used to collect storage keys
+    /// before a permanent delete.
+    /// </summary>
+    Task<IReadOnlyList<Node>> ListDeletedBatchAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>Lists every soft-deleted node owned by the user (used by empty-trash).</summary>
+    Task<IReadOnlyList<Node>> ListAllDeletedAsync(string userId, CancellationToken cancellationToken);
+
+    /// <summary>Reverses a soft delete for a node and its same-deletion descendants in one bulk update.</summary>
+    Task<long> RestoreSubtreeAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        DateTimeOffset now,
+        CancellationToken cancellationToken);
+
+    /// <summary>Permanently removes the given nodes owned by the user; returns the number removed.</summary>
+    Task<long> DeleteManyAsync(string userId, IReadOnlyCollection<string> nodeIds, CancellationToken cancellationToken);
+
     /// <summary>Atomically finalises a pending file node; returns false when it is no longer pending.</summary>
     Task<bool> TryMarkReadyAsync(
         string userId,

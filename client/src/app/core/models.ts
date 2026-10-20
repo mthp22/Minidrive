@@ -22,6 +22,17 @@ export interface PagedResult<T> {
   hasMore: boolean;
 }
 
+export interface TrashItem {
+  id: string;
+  parentId: string | null;
+  name: string;
+  type: NodeType;
+  sizeBytes: number;
+  contentType: string | null;
+  deletedAtUtc: string;
+  purgeAfterUtc: string;
+}
+
 export interface InitiateUploadRequest {
   parentId: string | null;
   fileName: string;

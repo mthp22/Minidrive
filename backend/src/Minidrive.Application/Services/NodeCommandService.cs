@@ -148,28 +148,81 @@ public sealed class NodeCommandService
     }
 
     /// <summary>
-    /// Soft-deletes a node and its subtree. Storage objects are removed afterwards through the
-    /// durable cleanup queue: MongoDB stays the source of truth and metadata remains queryable.
+    /// Soft-deletes a node and its subtree. Storage objects are deliberately preserved so the item
+    /// stays restorable for the whole retention window; they are removed only when the trash entry
+    /// is permanently deleted or the retention purge runs.
     /// </summary>
     public async Task DeleteNodeAsync(string userId, string nodeId, CancellationToken cancellationToken)
     {
         var now = _clock.GetUtcNow();
         var node = await GetActiveNodeAsync(userId, nodeId, cancellationToken);
 
-        var storageKeys = node.IsFile
-            ? ToStorageKeys(node)
-            : await _nodes.ListDescendantFileStorageKeysAsync(userId, node.DescendantPrefix, cancellationToken);
-
         await _nodes.SoftDeleteSubtreeAsync(userId, node.Id, node.DescendantPrefix, now, cancellationToken);
-
-        foreach (var storageKey in storageKeys)
-        {
-            await _cleanupQueue.EnqueueAsync(userId, storageKey, cancellationToken);
-        }
     }
 
-    private static IReadOnlyList<string> ToStorageKeys(Node node) =>
-        string.IsNullOrEmpty(node.StorageKey) ? [] : [node.StorageKey];
+    /// <summary>
+    /// Restores a soft-deleted node and every descendant removed as part of the same deletion.
+    /// A node that is already live is returned unchanged so a retried restore is idempotent.
+    /// </summary>
+    public async Task<NodeDetails> RestoreNodeAsync(string userId, string nodeId, CancellationToken cancellationToken)
+    {
+        var now = _clock.GetUtcNow();
+        var node = await _nodes.FindAsync(userId, nodeId, includePending: false, includeDeleted: true, cancellationToken);
+        if (node is null)
+        {
+            throw new NotFoundException("The requested node was not found.");
+        }
+
+        if (!node.IsDeleted)
+        {
+            return NodeModelMapper.ToDetails(node);
+        }
+
+        var deletedAt = node.DeletedAtUtc ?? now;
+        await _nodes.RestoreSubtreeAsync(userId, node.Id, node.DescendantPrefix, deletedAt, now, cancellationToken);
+
+        node.Restore(now);
+        return NodeModelMapper.ToDetails(node);
+    }
+
+    /// <summary>
+    /// Permanently deletes a soft-deleted node and its same-deletion descendants. Storage objects are
+    /// removed through the durable cleanup queue; metadata is removed immediately.
+    /// </summary>
+    public async Task PurgeNodeAsync(string userId, string nodeId, CancellationToken cancellationToken)
+    {
+        var node = await _nodes.FindAsync(userId, nodeId, includePending: false, includeDeleted: true, cancellationToken);
+        if (node is null || !node.IsDeleted)
+        {
+            // A live node is deleted through the normal delete endpoint, so a non-trash id is a 404.
+            throw new NotFoundException("The requested node was not found.");
+        }
+
+        var deletedAt = node.DeletedAtUtc ?? _clock.GetUtcNow();
+        var batch = await _nodes.ListDeletedBatchAsync(userId, node.Id, node.DescendantPrefix, deletedAt, cancellationToken);
+        await PurgeBatchAsync(userId, batch, cancellationToken);
+    }
+
+    /// <summary>Permanently deletes every soft-deleted node owned by the user. Returns the count removed.</summary>
+    public async Task<int> EmptyTrashAsync(string userId, CancellationToken cancellationToken)
+    {
+        var deleted = await _nodes.ListAllDeletedAsync(userId, cancellationToken);
+        await PurgeBatchAsync(userId, deleted, cancellationToken);
+        return deleted.Count;
+    }
+
+    private async Task PurgeBatchAsync(string userId, IReadOnlyList<Node> batch, CancellationToken cancellationToken)
+    {
+        foreach (var node in batch)
+        {
+            if (node.IsFile && !string.IsNullOrEmpty(node.StorageKey))
+            {
+                await _cleanupQueue.EnqueueAsync(userId, node.StorageKey, cancellationToken);
+            }
+        }
+
+        await _nodes.DeleteManyAsync(userId, batch.Select(node => node.Id).ToList(), cancellationToken);
+    }
 
     private async Task<Node> GetActiveNodeAsync(string userId, string nodeId, CancellationToken cancellationToken)
     {

@@ -42,11 +42,8 @@ public sealed class AuthenticationOptionsValidator : IValidateOptions<Authentica
         if (string.IsNullOrWhiteSpace(options.SigningKey))
         {
             // Development may run without a committed secret; an ephemeral key is generated at
-            // startup. Everywhere else an absent key means every token would be forgeable.
-            if (!_environment.IsDevelopment())
-            {
-                failures.Add("Authentication:SigningKey is required outside the Development environment.");
-            }
+            // startup. Outside Development the key is required unless Auth0 validates tokens —
+            // checked below once the Auth0 settings are known.
         }
         else if (options.SigningKey.Length < AuthenticationOptions.MinimumSigningKeyLength)
         {
@@ -58,6 +55,24 @@ public sealed class AuthenticationOptionsValidator : IValidateOptions<Authentica
         {
             failures.Add(
                 "Authentication:EnableDevTokenEndpoint may only be enabled in the Development environment.");
+        }
+
+        // Auth0: both settings must be supplied together, or the API would silently accept tokens
+        // for an audience it cannot validate.
+        var hasAuth0Domain = !string.IsNullOrWhiteSpace(options.Auth0Domain);
+        var hasAuth0Audience = !string.IsNullOrWhiteSpace(options.Auth0Audience);
+        if (hasAuth0Domain != hasAuth0Audience)
+        {
+            failures.Add(
+                "Authentication:Auth0Domain and Authentication:Auth0Audience must be set together.");
+        }
+
+        // A symmetric signing key is only needed for the local dev-token scheme. When Auth0 is the
+        // identity provider, its asymmetric JWKS validates tokens, so no local secret is required.
+        if (string.IsNullOrWhiteSpace(options.SigningKey) && !options.Auth0Enabled && !_environment.IsDevelopment())
+        {
+            failures.Add(
+                "Authentication:SigningKey is required outside the Development environment unless Auth0 is configured.");
         }
 
         return failures.Count == 0

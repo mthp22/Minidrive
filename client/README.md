@@ -30,19 +30,38 @@ API_PROXY_TARGET=http://127.0.0.1:5090 npm start
 Because requests are proxied, the API needs no CORS configuration for local
 development.
 
-## Identity (no login yet)
+## Identity (Auth0, or dev fallback)
 
-Phase 1 has no sign-in screen. At bootstrap `AuthService` (browser only — the app
-renders on the server too) mints a JWT for the fixed user `dev-user` via the
-Development-only `POST /api/v1/auth/dev-token`, then attaches it to every request
-through an HTTP interceptor. Two things must therefore be true of the API you point at:
+The client supports two authentication modes, chosen at build time by
+`src/environments/environment.ts`:
 
-- `ASPNETCORE_ENVIRONMENT=Development` (or the dev-token endpoint explicitly enabled).
-- `Authentication__EnableDevTokenEndpoint=true` — if your `.env` or environment sets it
-  to `false`, the app fails at startup with a clear bootstrap error rather than silently
-  showing an empty drive.
+- **Auth0** — when `environment.auth0` is set (`domain`, `clientId`, `audience`), the app
+  uses `@auth0/auth0-angular`: a Sign-in screen appears when you are not authenticated,
+  a popup sign-in obtains an access token, and the header shows your avatar/name with a
+  Sign-out action. The token is fetched silently per API request, and the per-user id is
+  Auth0's `sub` claim. The API must be configured with the same values
+  (`Authentication__Auth0Domain` / `Authentication__Auth0Audience`) so it validates the
+  same tokens.
 
-A real login flow is Phase 2; nothing here is a security boundary.
+- **Dev fallback** — when `environment.auth0` is `undefined` (the default), there is no
+  sign-in screen: at bootstrap `AuthService` (browser only) mints a JWT for the fixed user
+  `dev-user` via the Development-only `POST /api/v1/auth/dev-token` and attaches it to
+  every request. The API must therefore run with the dev-token endpoint enabled
+  (`ASPNETCORE_ENVIRONMENT=Development` and `Authentication__EnableDevTokenEndpoint=true`).
+
+Either way, an HTTP interceptor attaches the bearer token to every call. The dev fallback
+is a convenience, not a security boundary.
+
+### Enabling Auth0
+
+1. In the [Auth0 dashboard](https://manage.auth0.com/), create a **Single Page
+   Application** and an **API** (the API's *Identifier* is the audience).
+2. In the SPA's settings, add `http://localhost:4200` (and your prod origin) to
+   **Allowed Callback URLs**, **Allowed Logout URLs** and **Allowed Web Origins**.
+3. Fill in `environment.auth0` in `src/environments/environment.ts` with the tenant
+   domain, SPA client ID and API audience.
+4. Set the matching values on the API (`Authentication__Auth0Domain`,
+   `Authentication__Auth0Audience`) and restart it.
 
 ## What's in the UI
 

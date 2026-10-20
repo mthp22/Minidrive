@@ -1,4 +1,26 @@
-@if (auth.ready() && !auth.isAuthenticated()) {
+@if (auth.auth0Enabled && auth.ready() && !auth.isAuthenticated()) {
+  <div class="flex min-h-screen items-center justify-center px-4">
+    <div
+      class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <ui-icon [size]="36" name="cloud" class="mx-auto text-sky-500" />
+      <h1 class="mt-4 text-lg font-semibold">Sign in to Minidrive</h1>
+      <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+        Access your files with your Minidrive account.
+      </p>
+      @if (auth.bootstrapError()) {
+        <p class="mt-3 text-sm text-red-600 dark:text-red-400">{{ auth.bootstrapError() }}</p>
+      }
+      <button
+        type="button"
+        class="mt-6 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+        (click)="signIn()"
+      >
+        Sign in
+      </button>
+    </div>
+  </div>
+} @else if (auth.ready() && !auth.isAuthenticated()) {
   <div class="flex min-h-screen items-center justify-center px-4">
     <div
       class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900"
@@ -49,9 +71,47 @@
           />
         </div>
 
-        @if (!auth.isAuthenticated()) {
+        @if (auth.auth0Enabled) {
+          <div class="flex flex-none items-center gap-2">
+            @if (auth.user(); as user) {
+              @if (user.picture) {
+                <img
+                  [src]="user.picture"
+                  [alt]="user.name ?? 'Account'"
+                  referrerpolicy="no-referrer"
+                  class="h-7 w-7 rounded-full object-cover"
+                />
+              } @else {
+                <span
+                  class="flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold uppercase text-white"
+                >
+                  {{ (user.name ?? user.email ?? '?').charAt(0) }}
+                </span>
+              }
+              <span class="hidden text-sm text-slate-600 sm:inline dark:text-slate-300">
+                {{ user.name ?? user.email }}
+              </span>
+            }
+            <button
+              type="button"
+              class="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              (click)="signOut()"
+            >
+              Sign out
+            </button>
+          </div>
+        } @else if (!auth.isAuthenticated()) {
           <span class="flex-none animate-pulse text-xs text-amber-600">Connecting…</span>
         }
+
+        <a
+          routerLink="/trash"
+          class="flex-none rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+          aria-label="Trash"
+          title="Trash"
+        >
+          <ui-icon [size]="17" name="trash" />
+        </a>
 
         <button
           type="button"

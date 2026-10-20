@@ -85,6 +85,33 @@ public static class NodeEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        var trash = endpoints
+            .MapGroup("/api/v1/trash")
+            .WithTags("Trash")
+            .RequireAuthorization();
+
+        trash.MapGet(string.Empty, ListTrashAsync)
+            .WithName("ListTrash")
+            .WithSummary("Lists the caller's soft-deleted items (newest first), each with its purge time.")
+            .Produces<IReadOnlyList<TrashItem>>();
+
+        trash.MapPost("/{nodeId}/restore", RestoreNodeAsync)
+            .WithName("RestoreNode")
+            .WithSummary("Restores a soft-deleted node and any descendants removed with it.")
+            .Produces<NodeDetails>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        trash.MapDelete("/{nodeId}", PurgeNodeAsync)
+            .WithName("PurgeNode")
+            .WithSummary("Permanently deletes a soft-deleted node and its subtree; storage objects are removed asynchronously.")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        trash.MapDelete(string.Empty, EmptyTrashAsync)
+            .WithName("EmptyTrash")
+            .WithSummary("Permanently deletes every soft-deleted item for the caller.")
+            .Produces(StatusCodes.Status204NoContent);
+
         return endpoints;
     }
 
@@ -202,5 +229,43 @@ public static class NodeEndpoints
             cancellationToken);
 
         return Results.Ok(results);
+    }
+
+    private static async Task<IResult> ListTrashAsync(
+        ICurrentUser currentUser,
+        NodeQueryService nodes,
+        CancellationToken cancellationToken)
+    {
+        var items = await nodes.ListTrashAsync(currentUser.RequireUserId(), cancellationToken);
+        return Results.Ok(items);
+    }
+
+    private static async Task<IResult> RestoreNodeAsync(
+        string nodeId,
+        ICurrentUser currentUser,
+        NodeCommandService commands,
+        CancellationToken cancellationToken)
+    {
+        var node = await commands.RestoreNodeAsync(currentUser.RequireUserId(), nodeId, cancellationToken);
+        return Results.Ok(node);
+    }
+
+    private static async Task<IResult> PurgeNodeAsync(
+        string nodeId,
+        ICurrentUser currentUser,
+        NodeCommandService commands,
+        CancellationToken cancellationToken)
+    {
+        await commands.PurgeNodeAsync(currentUser.RequireUserId(), nodeId, cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> EmptyTrashAsync(
+        ICurrentUser currentUser,
+        NodeCommandService commands,
+        CancellationToken cancellationToken)
+    {
+        await commands.EmptyTrashAsync(currentUser.RequireUserId(), cancellationToken);
+        return Results.NoContent();
     }
 }

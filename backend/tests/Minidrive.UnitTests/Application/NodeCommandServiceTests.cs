@@ -179,7 +179,7 @@ public sealed class NodeCommandServiceTests
     }
 
     [Fact]
-    public async Task Delete_File_SoftDeletesAndQueuesStorageCleanup()
+    public async Task Delete_File_SoftDeletesAndPreservesObjectForRestore()
     {
         var context = new ApplicationTestContext();
         var upload = await context.UploadService.InitiateAsync(
@@ -193,11 +193,101 @@ public sealed class NodeCommandServiceTests
 
         var stored = context.Nodes.All.Single(node => node.Id == upload.FileId);
         Assert.True(stored.IsDeleted);
-        Assert.Single(context.CleanupQueue.Items);
+        Assert.NotNull(stored.DeletedAtUtc);
+
+        // Storage objects are preserved so the file stays restorable for the whole retention window.
+        Assert.Empty(context.CleanupQueue.Items);
     }
 
     [Fact]
-    public async Task Delete_Folder_SoftDeletesWholeSubtreeAndQueuesEveryObject()
+    public async Task Restore_AfterDelete_BringsFileBackIntoListing()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, "notes.txt", "text/plain", 12 * 1024 * 1024),
+            default);
+        context.Storage.ObjectSizeBytes = 12 * 1024 * 1024;
+        await context.UploadService.CompleteAsync(UserA, upload.UploadId, CompleteParts(upload.ExpectedPartCount), default);
+
+        await context.CommandService.DeleteNodeAsync(UserA, upload.FileId, default);
+        Assert.Empty((await context.QueryService.ListChildrenAsync(UserA, null, null, null, default)).Items);
+
+        var restored = await context.CommandService.RestoreNodeAsync(UserA, upload.FileId, default);
+
+        Assert.Equal("notes.txt", restored.Name);
+        var stored = context.Nodes.All.Single(node => node.Id == upload.FileId);
+        Assert.False(stored.IsDeleted);
+        Assert.Null(stored.DeletedAtUtc);
+        var page = await context.QueryService.ListChildrenAsync(UserA, null, null, null, default);
+        Assert.Contains(page.Items, node => node.Id == upload.FileId);
+    }
+
+    [Fact]
+    public async Task Restore_OnLiveNode_IsIdempotent()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, "live.txt", "text/plain", 5),
+            default);
+        context.Storage.ObjectSizeBytes = 5;
+        await context.UploadService.CompleteAsync(UserA, upload.UploadId, CompleteParts(upload.ExpectedPartCount), default);
+
+        var details = await context.CommandService.RestoreNodeAsync(UserA, upload.FileId, default);
+
+        Assert.Equal("live.txt", details.Name);
+        Assert.False(context.Nodes.All.Single(node => node.Id == upload.FileId).IsDeleted);
+    }
+
+    [Fact]
+    public async Task Purge_AfterDelete_RemovesMetadataAndQueuesObject()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, "notes.txt", "text/plain", 12 * 1024 * 1024),
+            default);
+        context.Storage.ObjectSizeBytes = 12 * 1024 * 1024;
+        await context.UploadService.CompleteAsync(UserA, upload.UploadId, CompleteParts(upload.ExpectedPartCount), default);
+
+        await context.CommandService.DeleteNodeAsync(UserA, upload.FileId, default);
+        await context.CommandService.PurgeNodeAsync(UserA, upload.FileId, default);
+
+        Assert.DoesNotContain(context.Nodes.All, node => node.Id == upload.FileId);
+        var queued = Assert.Single(context.CleanupQueue.Items);
+        Assert.Equal($"users/{UserA}/files/{upload.FileId}", queued.StorageKey);
+    }
+
+    [Fact]
+    public async Task EmptyTrash_RemovesEveryDeletedNodeAndQueuesObjects()
+    {
+        var context = new ApplicationTestContext();
+        var first = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, "a.txt", "text/plain", 5),
+            default);
+        context.Storage.ObjectSizeBytes = 5;
+        await context.UploadService.CompleteAsync(UserA, first.UploadId, CompleteParts(first.ExpectedPartCount), default);
+
+        var second = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, "b.txt", "text/plain", 5),
+            default);
+        await context.UploadService.CompleteAsync(UserA, second.UploadId, CompleteParts(second.ExpectedPartCount), default);
+
+        await context.CommandService.DeleteNodeAsync(UserA, first.FileId, default);
+        await context.CommandService.DeleteNodeAsync(UserA, second.FileId, default);
+
+        var removed = await context.CommandService.EmptyTrashAsync(UserA, default);
+
+        Assert.Equal(2, removed);
+        Assert.Empty(context.Nodes.All);
+        Assert.Equal(2, context.CleanupQueue.Items.Count);
+    }
+
+    [Fact]
+    public async Task Delete_Folder_SoftDeletesWholeSubtreeAndPreservesObjects()
     {
         var context = new ApplicationTestContext();
         var folder = await context.CommandService.CreateFolderAsync(UserA, new CreateFolderRequest(null, "Docs"), default);
@@ -210,7 +300,39 @@ public sealed class NodeCommandServiceTests
         Assert.True(context.Nodes.All.Single(node => node.Id == folder.Id).IsDeleted);
         Assert.True(context.Nodes.All.Single(node => node.Id == first).IsDeleted);
         Assert.True(context.Nodes.All.Single(node => node.Id == second).IsDeleted);
-        Assert.Equal(2, context.CleanupQueue.Items.Count);
+
+        // Objects are kept so the whole subtree stays restorable.
+        Assert.Empty(context.CleanupQueue.Items);
+
+        // Restoring the folder restores the whole subtree and makes files visible again.
+        await context.CommandService.RestoreNodeAsync(UserA, folder.Id, default);
+        Assert.False(context.Nodes.All.Single(node => node.Id == folder.Id).IsDeleted);
+        Assert.False(context.Nodes.All.Single(node => node.Id == first).IsDeleted);
+        Assert.False(context.Nodes.All.Single(node => node.Id == second).IsDeleted);
+        var children = await context.QueryService.ListChildrenAsync(UserA, folder.Id, null, null, default);
+        Assert.Equal(2, children.Items.Count);
+    }
+
+    [Fact]
+    public async Task Trash_Listing_ShowsOnlyTopLevelDeletedItems()
+    {
+        var context = new ApplicationTestContext();
+        var folder = await context.CommandService.CreateFolderAsync(UserA, new CreateFolderRequest(null, "Docs"), default);
+        var child = await InitiateAndCompleteAsync(context, UserA, folder.Id, "child.txt");
+        var lone = await InitiateAndCompleteAsync(context, UserA, null, "lone.txt");
+
+        await context.CommandService.DeleteNodeAsync(UserA, folder.Id, default);
+        await context.CommandService.DeleteNodeAsync(UserA, lone, default);
+
+        var trash = await context.QueryService.ListTrashAsync(UserA, default);
+
+        // The folder is a trash root; its child and the separately-deleted file are roots too (their
+        // parents are not deleted).
+        Assert.Equal(2, trash.Count);
+        Assert.DoesNotContain(trash, item => item.Id == child);
+        Assert.Contains(trash, item => item.Id == folder.Id);
+        Assert.Contains(trash, item => item.Id == lone);
+        Assert.All(trash, item => Assert.True(item.PurgeAfterUtc > item.DeletedAtUtc));
     }
 
     [Fact]

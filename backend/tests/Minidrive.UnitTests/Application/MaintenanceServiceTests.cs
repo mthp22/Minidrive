@@ -81,4 +81,73 @@ public sealed class MaintenanceServiceTests
 
         Assert.Equal(0, processed);
     }
+
+    [Fact]
+    public async Task PurgeExpiredTrash_WithRetentionElapsed_RemovesMetadataAndQueuesObjects()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await UploadAsync(context, "old.bin");
+        await context.CommandService.DeleteNodeAsync(UserA, upload, default);
+
+        // Object preserved on delete; nothing queued yet.
+        Assert.Empty(context.CleanupQueue.Items);
+
+        context.Clock.Advance(TimeSpan.FromDays(8)); // past the default 7-day retention
+
+        var purged = await context.MaintenanceService.PurgeExpiredTrashAsync(batchSize: 10, default);
+
+        Assert.Equal(1, purged);
+        Assert.Empty(context.Nodes.All);
+        var queued = Assert.Single(context.CleanupQueue.Items);
+        Assert.Equal($"users/{UserA}/files/{upload}", queued.StorageKey);
+    }
+
+    [Fact]
+    public async Task PurgeExpiredTrash_WithinRetention_LeavesNodeAlone()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await UploadAsync(context, "recent.bin");
+        await context.CommandService.DeleteNodeAsync(UserA, upload, default);
+
+        context.Clock.Advance(TimeSpan.FromDays(6)); // still inside the 7-day window
+
+        var purged = await context.MaintenanceService.PurgeExpiredTrashAsync(batchSize: 10, default);
+
+        Assert.Equal(0, purged);
+        Assert.True(context.Nodes.All.Single(node => node.Id == upload).IsDeleted);
+        Assert.Empty(context.CleanupQueue.Items);
+    }
+
+    [Fact]
+    public async Task Restore_BeforeRetentionEnds_KeepsObjectAndRevivesNode()
+    {
+        var context = new ApplicationTestContext();
+        var upload = await UploadAsync(context, "revive.bin");
+        await context.CommandService.DeleteNodeAsync(UserA, upload, default);
+        context.Clock.Advance(TimeSpan.FromDays(3));
+
+        await context.CommandService.RestoreNodeAsync(UserA, upload, default);
+        var purged = await context.MaintenanceService.PurgeExpiredTrashAsync(batchSize: 10, default);
+
+        Assert.Equal(0, purged); // restored node is no longer deleted, so purge skips it
+        Assert.False(context.Nodes.All.Single(node => node.Id == upload).IsDeleted);
+    }
+
+    private static async Task<string> UploadAsync(ApplicationTestContext context, string name)
+    {
+        var upload = await context.UploadService.InitiateAsync(
+            UserA,
+            new InitiateUploadRequest(null, name, "text/plain", 5),
+            default);
+        context.Storage.ObjectSizeBytes = 5;
+        await context.UploadService.CompleteAsync(
+            UserA,
+            upload.UploadId,
+            new CompleteUploadRequest(
+                Enumerable.Range(1, upload.ExpectedPartCount)
+                    .Select(number => new UploadedPartRequest(number, $"etag-{number}"))
+                    .ToList()),
+            default);
+        return upload.FileId;
+    }
 }

@@ -53,6 +53,7 @@ public static class DependencyInjection
 
         services.AddSingleton<IIdGenerator, ObjectIdGenerator>();
         services.AddSingleton<INodeRepository, MongoNodeRepository>();
+        services.AddSingleton<ITrashPurgeStore, MongoTrashPurgeStore>();
         services.AddSingleton<IUploadSessionRepository, MongoUploadSessionRepository>();
         services.AddSingleton<IStorageCleanupQueue, MongoStorageCleanupQueue>();
         services.AddSingleton<IObjectStorageService, R2ObjectStorageService>();

@@ -254,6 +254,96 @@ public sealed class InMemoryNodeRepository : INodeRepository
         return Task.FromResult(results);
     }
 
+    public Task<IReadOnlyList<Node>> ListDeletedRootsAsync(
+        string userId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var deletedIds = _nodes.Values
+            .Where(node => node.UserId == userId && node.IsDeleted)
+            .Select(node => node.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        IReadOnlyList<Node> results = _nodes.Values
+            .Where(node => node.UserId == userId
+                && node.IsDeleted
+                && (node.ParentId is null || !deletedIds.Contains(node.ParentId)))
+            .OrderByDescending(node => node.DeletedAtUtc ?? DateTimeOffset.MinValue)
+            .ThenByDescending(node => node.Id, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    public Task<IReadOnlyList<Node>> ListDeletedBatchAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Node> results = _nodes.Values
+            .Where(node => node.UserId == userId
+                && node.IsDeleted
+                && (string.Equals(node.Id, selfNodeId, StringComparison.Ordinal)
+                    || (node.MaterializedPath.StartsWith(descendantPrefix, StringComparison.Ordinal)
+                        && node.DeletedAtUtc == deletedAtUtc)))
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    public Task<IReadOnlyList<Node>> ListAllDeletedAsync(string userId, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Node> results = _nodes.Values
+            .Where(node => node.UserId == userId && node.IsDeleted)
+            .ToList();
+
+        return Task.FromResult(results);
+    }
+
+    public Task<long> RestoreSubtreeAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        long count = 0;
+
+        foreach (var node in _nodes.Values
+            .Where(node => node.UserId == userId
+                && node.IsDeleted
+                && (string.Equals(node.Id, selfNodeId, StringComparison.Ordinal)
+                    || (node.MaterializedPath.StartsWith(descendantPrefix, StringComparison.Ordinal)
+                        && node.DeletedAtUtc == deletedAtUtc)))
+            .ToList())
+        {
+            node.Restore(now);
+            count++;
+        }
+
+        return Task.FromResult(count);
+    }
+
+    public Task<long> DeleteManyAsync(string userId, IReadOnlyCollection<string> nodeIds, CancellationToken cancellationToken)
+    {
+        long count = 0;
+
+        foreach (var id in nodeIds)
+        {
+            if (_nodes.TryGetValue(id, out var node) && node.UserId == userId)
+            {
+                _nodes.Remove(id);
+                count++;
+            }
+        }
+
+        return Task.FromResult(count);
+    }
+
     private bool SiblingExists(string userId, string? parentId, string name, string? excludeNodeId) =>
         _nodes.Values.Any(node =>
             node.UserId == userId

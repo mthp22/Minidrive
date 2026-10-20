@@ -78,6 +78,7 @@ public sealed class MaintenanceBackgroundService : BackgroundService
 
             await maintenance.ExpireStaleUploadsAsync(_options.BatchSize, cancellationToken);
             await maintenance.ProcessStorageCleanupAsync(_options.BatchSize, cancellationToken);
+            await maintenance.PurgeExpiredTrashAsync(_options.BatchSize, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

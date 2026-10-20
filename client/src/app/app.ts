@@ -102,4 +102,14 @@ export class App {
   protected retryBootstrap(): void {
     void this.auth.retry();
   }
+
+  /** Starts an Auth0 sign-in (only meaningful when Auth0 is configured). */
+  protected signIn(): void {
+    this.auth.login();
+  }
+
+  /** Signs out of Auth0 and returns to the app origin. */
+  protected signOut(): void {
+    this.auth.logout();
+  }
 }

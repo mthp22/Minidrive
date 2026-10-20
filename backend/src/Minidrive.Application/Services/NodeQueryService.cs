@@ -18,15 +18,18 @@ public sealed class NodeQueryService
     private readonly INodeRepository _nodes;
     private readonly IObjectStorageService _storage;
     private readonly UploadOptions _uploadOptions;
+    private readonly TrashOptions _trashOptions;
 
     public NodeQueryService(
         INodeRepository nodes,
         IObjectStorageService storage,
-        IOptions<UploadOptions> uploadOptions)
+        IOptions<UploadOptions> uploadOptions,
+        IOptions<TrashOptions> trashOptions)
     {
         _nodes = nodes;
         _storage = storage;
         _uploadOptions = uploadOptions.Value;
+        _trashOptions = trashOptions.Value;
     }
 
     /// <summary>Lists the direct children of a folder (or the root when <paramref name="parentId"/> is null).</summary>
@@ -82,6 +85,18 @@ public sealed class NodeQueryService
 
         var results = await _nodes.SearchByNameAsync(userId, pattern, limit, cancellationToken);
         return results.Select(NodeModelMapper.ToSummary).ToList();
+    }
+
+    /// <summary>
+    /// Lists the user's trash: soft-deleted items (folder deletions shown once, at the top level),
+    /// newest first, capped at the configured maximum. Each entry carries the time it will be
+    /// permanently purged if not restored.
+    /// </summary>
+    public async Task<IReadOnlyList<TrashItem>> ListTrashAsync(string userId, CancellationToken cancellationToken)
+    {
+        var roots = await _nodes.ListDeletedRootsAsync(userId, _trashOptions.MaxItems, cancellationToken);
+        var retention = _trashOptions.Retention;
+        return roots.Select(node => NodeModelMapper.ToTrashItem(node, retention)).ToList();
     }
 
     /// <summary>Returns node metadata, optionally including the recursive size of a folder.</summary>

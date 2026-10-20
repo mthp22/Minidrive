@@ -345,6 +345,126 @@ public sealed class MongoNodeRepository : INodeRepository
         return result.DeletedCount > 0;
     }
 
+    public async Task<IReadOnlyList<Node>> ListDeletedRootsAsync(
+        string userId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        // A trash root is a deleted node whose parent is not itself deleted (or which has no parent).
+        // The $lookup flags nodes with a deleted parent; those are excluded so a folder deletion is
+        // shown once rather than once per descendant.
+        var pipeline = PipelineDefinition<NodeDocument, NodeDocument>.Create(
+        [
+            new BsonDocument("$match", new BsonDocument
+            {
+                { "UserId", userId },
+                { "IsDeleted", true },
+            }),
+            new BsonDocument("$lookup", new BsonDocument
+            {
+                { "from", MongoCollections.Nodes },
+                { "let", new BsonDocument("parentId", "$ParentId") },
+                { "pipeline", new BsonArray
+                {
+                    new BsonDocument("$match", new BsonDocument
+                    {
+                        {
+                            "$expr", new BsonDocument("$and", new BsonArray
+                            {
+                                new BsonDocument("$eq", new BsonArray { "$_id", "$$parentId" }),
+                                new BsonDocument("$eq", new BsonArray { "$IsDeleted", true }),
+                            })
+                        },
+                    }),
+                } },
+                { "as", "deletedParent" },
+            }),
+            new BsonDocument("$match", new BsonDocument
+            {
+                { "$expr", new BsonDocument("$eq", new BsonArray { new BsonDocument("$size", "$deletedParent"), 0 }) },
+            }),
+            new BsonDocument("$sort", new BsonDocument { { "DeletedAtUtc", -1 }, { "_id", -1 } }),
+            new BsonDocument("$limit", limit),
+        ]);
+
+        var documents = await _collection.Aggregate(pipeline).ToListAsync(cancellationToken);
+        return documents.Select(NodeMapper.ToDomain).ToList();
+    }
+
+    public async Task<IReadOnlyList<Node>> ListDeletedBatchAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var filter = Filters.And(
+            Filters.Eq(document => document.UserId, userId),
+            Filters.Eq(document => document.IsDeleted, true),
+            Filters.Or(
+                Filters.Eq(document => document.Id, selfNodeId),
+                Filters.And(
+                    Filters.Regex(document => document.MaterializedPath, PrefixRegex(descendantPrefix)),
+                    Filters.Eq(document => document.DeletedAtUtc, BsonDate.ToBson(deletedAtUtc)))));
+
+        var documents = await _collection.Find(filter).ToListAsync(cancellationToken);
+        return documents.Select(NodeMapper.ToDomain).ToList();
+    }
+
+    public async Task<IReadOnlyList<Node>> ListAllDeletedAsync(string userId, CancellationToken cancellationToken)
+    {
+        var filter = Filters.And(
+            Filters.Eq(document => document.UserId, userId),
+            Filters.Eq(document => document.IsDeleted, true));
+
+        var documents = await _collection.Find(filter).ToListAsync(cancellationToken);
+        return documents.Select(NodeMapper.ToDomain).ToList();
+    }
+
+    public async Task<long> RestoreSubtreeAsync(
+        string userId,
+        string selfNodeId,
+        string descendantPrefix,
+        DateTimeOffset deletedAtUtc,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        // Matching on the shared DeletedAtUtc restores exactly the nodes removed by one deletion, so
+        // a separately-deleted child under the same folder is left in the trash.
+        var filter = Filters.And(
+            Filters.Eq(document => document.UserId, userId),
+            Filters.Eq(document => document.IsDeleted, true),
+            Filters.Or(
+                Filters.Eq(document => document.Id, selfNodeId),
+                Filters.And(
+                    Filters.Regex(document => document.MaterializedPath, PrefixRegex(descendantPrefix)),
+                    Filters.Eq(document => document.DeletedAtUtc, BsonDate.ToBson(deletedAtUtc)))));
+
+        var update = Updates
+            .Set(document => document.IsDeleted, false)
+            .Set(document => document.DeletedAtUtc, (DateTime?)null)
+            .Set(document => document.UpdatedAtUtc, BsonDate.ToBson(now));
+
+        var result = await _collection.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount;
+    }
+
+    public async Task<long> DeleteManyAsync(string userId, IReadOnlyCollection<string> nodeIds, CancellationToken cancellationToken)
+    {
+        var valid = nodeIds.Where(IdFormat.IsValidObjectId).ToList();
+        if (valid.Count == 0)
+        {
+            return 0;
+        }
+
+        var filter = Filters.And(
+            Filters.Eq(document => document.UserId, userId),
+            Filters.In(document => document.Id, valid));
+
+        var result = await _collection.DeleteManyAsync(filter, cancellationToken);
+        return result.DeletedCount;
+    }
+
     private static FilterDefinition<NodeDocument> FileFilter(string userId, string descendantPrefix) =>
         Filters.And(
             Filters.Eq(document => document.UserId, userId),

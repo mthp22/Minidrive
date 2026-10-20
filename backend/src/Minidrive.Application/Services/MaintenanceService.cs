@@ -1,7 +1,9 @@
 using Minidrive.Application.Abstractions.Persistence;
 using Minidrive.Application.Abstractions.Storage;
+using Minidrive.Application.Options;
 using Minidrive.Domain.Enums;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Minidrive.Application.Services;
 
@@ -19,6 +21,8 @@ public sealed class MaintenanceService
     private readonly INodeRepository _nodes;
     private readonly IObjectStorageService _storage;
     private readonly IStorageCleanupQueue _cleanupQueue;
+    private readonly ITrashPurgeStore _trashPurge;
+    private readonly TrashOptions _trashOptions;
     private readonly TimeProvider _clock;
     private readonly ILogger<MaintenanceService> _logger;
 
@@ -27,6 +31,8 @@ public sealed class MaintenanceService
         INodeRepository nodes,
         IObjectStorageService storage,
         IStorageCleanupQueue cleanupQueue,
+        ITrashPurgeStore trashPurge,
+        IOptions<TrashOptions> trashOptions,
         TimeProvider clock,
         ILogger<MaintenanceService> logger)
     {
@@ -34,6 +40,8 @@ public sealed class MaintenanceService
         _nodes = nodes;
         _storage = storage;
         _cleanupQueue = cleanupQueue;
+        _trashPurge = trashPurge;
+        _trashOptions = trashOptions.Value;
         _clock = clock;
         _logger = logger;
     }
@@ -146,5 +154,33 @@ public sealed class MaintenanceService
         }
 
         return processed;
+    }
+
+    /// <summary>
+    /// Permanently deletes soft-deleted nodes whose retention window has elapsed. Metadata is removed
+    /// immediately; storage objects are handed to the durable cleanup queue so a storage outage can
+    /// never leak them. Safe to run repeatedly and across all users.
+    /// </summary>
+    public async Task<int> PurgeExpiredTrashAsync(int batchSize, CancellationToken cancellationToken)
+    {
+        var cutoff = _clock.GetUtcNow() - _trashOptions.Retention;
+        var expired = await _trashPurge.ListExpiredAsync(cutoff, batchSize, cancellationToken);
+        if (expired.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var node in expired)
+        {
+            if (node.IsFile && !string.IsNullOrEmpty(node.StorageKey))
+            {
+                await _cleanupQueue.EnqueueAsync(node.UserId, node.StorageKey, cancellationToken);
+            }
+        }
+
+        await _trashPurge.DeleteManyAsync(expired.Select(node => node.Id).ToList(), cancellationToken);
+
+        _logger.LogInformation("Purged {Count} expired trash node(s) past the {Days}-day retention window.", expired.Count, _trashOptions.RetentionDays);
+        return expired.Count;
     }
 }

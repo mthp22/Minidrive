@@ -1,22 +1,26 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { catchError, throwError } from 'rxjs';
+import { catchError, switchMap, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 import { ApiError, ApiProblem } from './models';
 
 /**
- * Attaches the bearer token minted at bootstrap and normalizes error responses into
+ * Attaches the bearer token to every API call and normalizes error responses into
  * {@link ApiError} so callers can branch on the API's stable `code` values.
+ *
+ * Token resolution is asynchronous because Auth0 refreshes access tokens silently; in dev mode the
+ * already-minted token is emitted immediately.
  */
 export const apiInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
-  const token = auth.token();
 
-  const withToken = token
-    ? request.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
-    : request;
-
-  return next(withToken).pipe(
+  return auth.getAuthToken().pipe(
+    switchMap((token) => {
+      const withToken = token
+        ? request.clone({ setHeaders: { Authorization: `Bearer ${token}` } })
+        : request;
+      return next(withToken);
+    }),
     catchError((error: unknown) => {
       if (error instanceof HttpErrorResponse) {
         return throwError(() => new ApiError(error.status, parseProblem(error)));

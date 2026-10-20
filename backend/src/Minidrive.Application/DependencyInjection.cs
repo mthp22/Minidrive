@@ -29,6 +29,11 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<MaintenanceOptions>, MaintenanceOptionsValidator>();
 
+        services.AddOptions<TrashOptions>()
+            .Bind(configuration.GetSection(TrashOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TrashOptions>, TrashOptionsValidator>();
+
         services.AddValidatorsFromAssemblyContaining<CreateFolderRequestValidator>(ServiceLifetime.Scoped);
 
         services.TryAddSingleton(TimeProvider.System);

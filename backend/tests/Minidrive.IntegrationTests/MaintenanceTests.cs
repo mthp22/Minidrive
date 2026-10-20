@@ -26,7 +26,7 @@ public sealed class MaintenanceTests : ApiTestBase
     }
 
     [Fact]
-    public async Task Deleting_a_file_defers_object_removal_until_maintenance_runs()
+    public async Task Deleting_a_file_keeps_object_restorable_until_retention_expires()
     {
         var client = CreateClient(NewUserId());
 
@@ -43,22 +43,36 @@ public sealed class MaintenanceTests : ApiTestBase
         var storageKey = await GetStorageKeyAsync(file.Id);
         Assert.True(Factory.Storage.HasObject(storageKey), "The completed object must exist before deletion.");
 
-        // Metadata first: the API must never block a delete on storage.
+        // Metadata first: the API must never block a delete on storage. The object is deliberately
+        // preserved so the file stays restorable for the whole retention window.
         var delete = await client.DeleteAsync($"/api/v1/nodes/{file.Id}");
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-        Assert.True(Factory.Storage.HasObject(storageKey), "Storage removal must be deferred behind the queue.");
+        Assert.True(Factory.Storage.HasObject(storageKey), "The object must be preserved while the item is in the trash.");
+        Assert.Equal(0, await CountCleanupItemsAsync(storageKey));
+
+        // The deleted node is no longer visible through the normal node API...
+        var gone = await client.GetAsync($"/api/v1/nodes/{file.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
+
+        // ...but it is still listed in (and restorable from) the trash.
+        var trashResponse = await client.GetAsync("/api/v1/trash");
+        Assert.Equal(HttpStatusCode.OK, trashResponse.StatusCode);
+        var trash = await ReadAsync<List<TrashItem>>(trashResponse);
+        Assert.NotNull(trash);
+        Assert.Contains(trash, item => item.Id == file.Id);
+
+        // Age the deletion past the retention window, exactly as time passing would, then let the
+        // retention purge retire the metadata and queue the object for removal.
+        await AgeNodeDeletionAsync(file.Id, days: 8);
+        var purged = await RunTrashPurgeAsync();
+        Assert.True(purged >= 1, "The aged node should be claimed by the retention purge.");
         Assert.Equal(1, await CountCleanupItemsAsync(storageKey));
 
-        // Maintenance performs the queued storage work.
         var processed = await RunStorageCleanupAsync();
         Assert.True(processed >= 1, "At least the queued item should be processed.");
 
         Assert.False(Factory.Storage.HasObject(storageKey));
-        Assert.Equal(0, await CountCleanupItemsAsync(storageKey));
         Assert.Contains(Factory.Storage.DeletedKeys, key => key == storageKey);
-
-        var gone = await client.GetAsync($"/api/v1/nodes/{file.Id}");
-        Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
     }
 
     [Fact]
@@ -155,6 +169,24 @@ public sealed class MaintenanceTests : ApiTestBase
         using var scope = Factory.Services.CreateScope();
         var maintenance = scope.ServiceProvider.GetRequiredService<MaintenanceService>();
         return maintenance.ExpireStaleUploadsAsync(100, CancellationToken.None);
+    }
+
+    private Task<int> RunTrashPurgeAsync()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var maintenance = scope.ServiceProvider.GetRequiredService<MaintenanceService>();
+        return maintenance.PurgeExpiredTrashAsync(100, CancellationToken.None);
+    }
+
+    private async Task AgeNodeDeletionAsync(string nodeId, int days)
+    {
+        var nodes = Database.GetCollection<BsonDocument>("nodes");
+        await nodes.UpdateOneAsync(
+            new BsonDocument { { "_id", new ObjectId(nodeId) } },
+            new BsonDocument
+            {
+                { "$set", new BsonDocument { { "DeletedAtUtc", DateTime.UtcNow.AddDays(-days) } } },
+            });
     }
 
     private async Task ExpireSessionAsync(string uploadId)
